@@ -11,7 +11,7 @@ namespace SPFxAadClient
             var client = AuthenticationHelper.GetActiveDirectoryClientAsUser();
 
             Console.WriteLine("Run operations for signed-in user");
-            Console.WriteLine("[a] - add\\update permission Graph permissions \n[d] - deletes Graph permissions \n[c] - deletes api-sso permissions \n[d] - adds api-sso permissions \n[e] - prints all grants added to SharePoint CE web app \nPlease enter your choice:");
+            Console.WriteLine("[a] - add\\update permission Graph permissions \n[d] - deletes Graph permissions \n[c] - deletes api-sso permissions \n[d] - adds api-sso permissions \n[e] - prints all grants added to SharePoint CE web app \n[f] - adds User.Read grant to Windows AD \nPlease enter your choice:");
 
             ConsoleKeyInfo key = Console.ReadKey();
             switch (key.KeyChar)
@@ -34,6 +34,9 @@ namespace SPFxAadClient
                     break;
                 case 'e':
                     PrintGrants(client).Wait();
+                    break;
+                case 'f':
+                    AddWindowsAdPermissions(client, "User.Read").Wait();
                     break;
             }
         }
@@ -71,6 +74,46 @@ namespace SPFxAadClient
                     PrincipalId = null,
                     ExpiryTime = DateTime.Now.AddYears(10),
                     ResourceId = msGraphServicePrincipal.ObjectId,
+                    Scope = scope
+                };
+
+                await client.Oauth2PermissionGrants.AddOAuth2PermissionGrantAsync(auth2PermissionGrant);
+            }
+        }
+
+        public static async Task AddWindowsAdPermissions(ActiveDirectoryClient client, string scope)
+        {
+            var spoCeServicePrinicipal = await client.ServicePrincipals
+                .Where(sp => sp.AppId == GlobalConstants.SpoCeApplicationId).ExecuteSingleAsync();
+
+            var windowsAdServicePrincipal = await client.ServicePrincipals
+                .Where(sp => sp.AppId == GlobalConstants.WindowsAzureActiveDirectoryAppId).ExecuteSingleAsync();
+
+            var grants = await client.Oauth2PermissionGrants.ExecuteAsync();
+            OAuth2PermissionGrant existingGrant = null;
+            foreach (IOAuth2PermissionGrant grant in grants.CurrentPage)
+            {
+                if (grant.ClientId == spoCeServicePrinicipal.ObjectId &&
+                    grant.ResourceId == windowsAdServicePrincipal.ObjectId)
+                {
+                    existingGrant = (OAuth2PermissionGrant)grant;
+                }
+            }
+
+            if (existingGrant != null)
+            {
+                existingGrant.Scope = scope;
+                await existingGrant.UpdateAsync();
+            }
+            else
+            {
+                var auth2PermissionGrant = new OAuth2PermissionGrant
+                {
+                    ClientId = spoCeServicePrinicipal.ObjectId,
+                    ConsentType = "AllPrincipals",
+                    PrincipalId = null,
+                    ExpiryTime = DateTime.Now.AddYears(10),
+                    ResourceId = windowsAdServicePrincipal.ObjectId,
                     Scope = scope
                 };
 
